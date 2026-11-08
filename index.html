@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Симулятор: Сила Ампера</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; user-select: none; }
+  input[type="range"] { accent-color: #3b82f6; }
+  input, select { user-select: text; }
+</style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+<header class="bg-slate-800/80 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center gap-3">
+  <div>
+    <h1 class="text-xl font-bold text-white">Віртуальна лабораторія: Сила Ампера</h1>
+    <p class="text-xs text-slate-400">Закон Ампера: F = B · I · L · sin α &nbsp;|&nbsp; 9 клас, урок 25</p>
+  </div>
+  <div class="flex gap-2 flex-wrap items-center">
+    <input id="stName" type="text" placeholder="Прізвище та ім’я" class="w-56 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+    <button data-noshot onclick="setPreset(1)" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30">Задача 1</button>
+    <button data-noshot onclick="saveJpg()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30">Зберегти JPG</button>
+  </div>
+</header>
+
+<main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 max-w-7xl w-full mx-auto">
+
+  <section class="lg:col-span-8 flex flex-col gap-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 flex flex-col relative shadow-xl" style="min-height:420px">
+      <span id="badge" class="absolute top-4 left-4 z-10 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur"></span>
+      <div class="flex-1 relative" style="min-height:340px"><canvas id="cv" class="w-full h-full block rounded-xl"></canvas></div>
+      <div class="grid grid-cols-2 gap-4 pt-3 border-t border-slate-700/60 text-center">
+        <div class="bg-slate-900/50 p-2 rounded-lg border border-slate-700/40">
+          <span class="text-xs text-amber-400 font-semibold block">Сила Ампера F</span>
+          <span id="fOut" class="text-lg font-bold text-white">0 Н</span>
+        </div>
+        <div class="bg-slate-900/50 p-2 rounded-lg border border-slate-700/40">
+          <span id="unkLabel" class="text-xs text-sky-400 font-semibold block">Шукана величина</span>
+          <span id="unkOut" class="text-lg font-bold text-white"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg">
+      <h3 class="text-sm font-semibold text-slate-300 mb-2">Математична модель</h3>
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700/50 text-xs font-mono space-y-1">
+        <div class="flex justify-between text-slate-400"><span>Формула:</span><span class="text-amber-400 font-bold">F = B · I · L · sin α</span></div>
+        <div class="flex justify-between text-slate-300 gap-4"><span>Підстановка:</span><span id="subst" class="text-right"></span></div>
+        <div class="flex justify-between pt-1 border-t border-slate-800"><span>Результат:</span><span id="res" class="font-bold text-emerald-400"></span></div>
+      </div>
+      <p id="note" class="text-xs text-slate-400 mt-3"></p>
+    </div>
+  </section>
+
+  <section class="lg:col-span-4 flex flex-col gap-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg space-y-4" id="controls"></div>
+
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg space-y-2">
+      <span class="text-xs font-semibold text-slate-400 block mb-1">Інструменти</span>
+      <button onclick="flipMagnet()" class="w-full py-2 px-3 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white">Поміняти полюси магніту (N ↔ S)</button>
+      <p class="text-xs text-slate-500 pt-1">Правило лівої руки: лінії B входять у долоню, чотири пальці вздовж струму, відігнутий великий палець показує напрямок сили.</p>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+const state = { B: 1.5, I: 4, L: 0.2, a: 45, s: 1, F: 0, unk: 'F' }; // s = +1: N зліва, S справа
+let disp = 0, noteText = '', err = '';
+
+const PARAMS = [
+  { k: 'B', name: 'Магнітна індукція B', unit: 'Тл', min: 0, max: 3,   step: 0.01, color: 'text-rose-400' },
+  { k: 'I', name: 'Сила струму I',       unit: 'А',  min: 0, max: 20,  step: 0.1,  color: 'text-amber-400' },
+  { k: 'L', name: 'Довжина провідника L', unit: 'м',  min: 0.05, max: 1, step: 0.01, color: 'text-emerald-400' },
+  { k: 'a', name: 'Кут α (між струмом і B)', unit: '°', min: 0, max: 180, step: 1,  color: 'text-sky-400' }
+];
+const UNK = { F: 'Сила Ампера F', B: 'Магнітна індукція B', I: 'Сила струму I', L: 'Довжина провідника L' };
+const UNIT = { F: 'Н', B: 'Тл', I: 'А', L: 'м' };
+const $ = id => document.getElementById(id);
+
+const box = $('controls');
+box.insertAdjacentHTML('beforeend', `
+  <div class="pb-3 border-b border-slate-700">
+    <label class="text-xs text-slate-400 block mb-1">Яку величину шукаємо?</label>
+    <select id="unk" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
+      ${Object.keys(UNK).map(k => `<option value="${k}">${UNK[k]}</option>`).join('')}
+    </select>
+    <p class="text-xs text-slate-500 mt-1">Інші величини введіть самі: шукана порахується автоматично.</p>
+  </div>`);
+PARAMS.forEach(p => {
+  box.insertAdjacentHTML('beforeend', `
+  <div>
+    <div class="flex justify-between text-xs mb-1">
+      <label class="text-slate-400">${p.name}:</label>
+      <div class="flex items-center gap-1">
+        <input type="number" id="n_${p.k}" step="any" class="w-24 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-bold ${p.color} text-xs">
+        <span class="text-slate-500 w-6">${p.unit}</span>
+      </div>
+    </div>
+    <input type="range" id="r_${p.k}" min="${p.min}" max="${p.max}" step="${p.step}" class="w-full">
+  </div>`);
+});
+box.insertAdjacentHTML('beforeend', `
+  <div class="pt-3 border-t border-slate-700">
+    <div class="flex justify-between items-center text-xs">
+      <label class="text-slate-400">Сила Ампера F:</label>
+      <div class="flex items-center gap-1">
+        <input type="number" id="n_F" step="any" class="w-24 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-bold text-orange-400 text-xs">
+        <select id="fu" class="bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-xs text-slate-300"><option value="1">Н</option><option value="0.001">мН</option></select>
+      </div>
+    </div>
+  </div>`);
+
+PARAMS.forEach(p => {
+  const n = $('n_' + p.k), r = $('r_' + p.k);
+  const set = e => { const v = parseFloat(e.target.value); if (isNaN(v) || v < 0) return; state[p.k] = v; update(e.target); };
+  n.addEventListener('input', set); r.addEventListener('input', set);
+});
+$('n_F').addEventListener('input', e => { const v = parseFloat(e.target.value); if (isNaN(v) || v < 0) return; state.F = v * +$('fu').value; update(e.target); });
+$('fu').addEventListener('change', () => update());
+$('unk').addEventListener('change', e => { state.unk = e.target.value; update(); });
+
+const fmt = (x, d = 4) => x.toLocaleString('uk-UA', { maximumFractionDigits: d });
+const force = () => state.F;
+
+function solve() {
+  err = '';
+  const sinA = Math.sin(state.a * Math.PI / 180), { B, I, L, F, unk } = state;
+  if (unk === 'F') { state.F = B * I * L * sinA; return; }
+  const den = unk === 'B' ? I * L * sinA : unk === 'I' ? B * L * sinA : B * I * sinA;
+  if (den < 1e-9) { err = 'Неможливо порахувати: знаменник дорівнює нулю. Перевірте, що решта величин і sin α не дорівнюють 0.'; return; }
+  state[unk] = F / den;
+}
+
+function update(src) {
+  solve();
+  PARAMS.forEach(p => {
+    const n = $('n_' + p.k), r = $('r_' + p.k), u = state.unk === p.k;
+    if (n !== src) n.value = +state[p.k].toPrecision(6);
+    if (r !== src) r.value = Math.min(Math.max(state[p.k], p.min), p.max);
+    n.readOnly = u; r.disabled = u;
+    n.classList.toggle('opacity-60', u); r.classList.toggle('opacity-40', u);
+  });
+  const nF = $('n_F');
+  if (nF !== src) nF.value = +(state.F / +$('fu').value).toPrecision(6);
+  nF.readOnly = state.unk === 'F'; nF.classList.toggle('opacity-60', state.unk === 'F');
+  $('unk').value = state.unk;
+
+  const { B, I, L, a, F, unk } = state, sinA = Math.sin(a * Math.PI / 180);
+  $('fOut').textContent = F >= 1 ? fmt(F) + ' Н' : fmt(F * 1000, 2) + ' мН';
+  const f = x => fmt(x, 6);
+  if (unk === 'F') {
+    $('subst').textContent = `${f(B)} Тл × ${f(I)} А × ${f(L)} м × sin ${fmt(a, 1)}° (= ${f(sinA)})`;
+  } else {
+    const form = { B: ['B = F : (I · L · sin α)', `${f(F)} Н : (${f(I)} А × ${f(L)} м × ${f(sinA)})`],
+                   I: ['I = F : (B · L · sin α)', `${f(F)} Н : (${f(B)} Тл × ${f(L)} м × ${f(sinA)})`],
+                   L: ['L = F : (B · I · sin α)', `${f(F)} Н : (${f(B)} Тл × ${f(I)} А × ${f(sinA)})`] }[unk];
+    $('subst').textContent = form[0] + ':  ' + form[1];
+  }
+  $('res').textContent = `${unk} = ${f(state[unk])} ${UNIT[unk]}`;
+  $('unkLabel').textContent = 'Шукана величина: ' + UNK[unk];
+  $('unkOut').textContent = `${unk} = ${f(state[unk])} ${UNIT[unk]}`;
+  $('note').textContent = err || noteText;
+  $('note').className = 'text-xs mt-3 ' + (err ? 'text-rose-400' : 'text-slate-400');
+
+  const b = $('badge');
+  if (F < 1e-9) {
+    b.className = 'absolute top-4 left-4 z-10 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur bg-slate-500/20 text-slate-300 border-slate-500/40';
+    b.textContent = 'F = 0: ' + (I === 0 ? 'немає струму' : B === 0 ? 'немає поля' : 'провідник уздовж ліній B');
+  } else if (Math.abs(sinA - 1) < 1e-9) {
+    b.className = 'absolute top-4 left-4 z-10 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+    b.textContent = 'Максимальна сила: α = 90°';
+  } else {
+    b.className = 'absolute top-4 left-4 z-10 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur bg-amber-500/20 text-amber-300 border-amber-500/40';
+    b.textContent = `F = ${(sinA * 100).toFixed(0)}% від максимальної`;
+  }
+}
+
+const NOTES = {
+  0: 'Змінюйте величини й дивіться, як змінюється сила. Оберіть, яку величину шукаємо, а решту введіть самі.',
+  1: 'Задача 1: B = 1,5 Тл, L = 0,2 м, I = 4 А, α = 45°. Знайдіть силу Ампера.'
+};
+function setPreset(n) {
+  const P = { 0: { B: 1.5, I: 4, L: 0.2, a: 45 }, 1: { B: 1.5, I: 4, L: 0.2, a: 45 } }[n];
+  Object.assign(state, P, { unk: 'F' });
+  if (n === 0) state.s = 1;
+  noteText = NOTES[n];
+  update();
+}
+function flipMagnet() { state.s *= -1; update(); }
+
+function saveJpg() {
+  const name = $('stName').value.trim();
+  if (!name) { alert('Спочатку введіть прізвище та ім’я.'); $('stName').focus(); return; }
+  if (typeof html2canvas === 'undefined') { alert('Не вдалося завантажити модуль для JPG. Перевірте інтернет і оновіть сторінку.'); return; }
+  html2canvas(document.body, {
+    scale: 2, backgroundColor: '#0f172a',
+    onclone: d => {
+      d.querySelectorAll('[data-noshot]').forEach(e => e.style.display = 'none');
+      const i = d.getElementById('stName'), s = d.createElement('div');
+      s.textContent = 'Виконав(ла): ' + name; s.className = 'text-base font-bold text-amber-300';
+      i.parentNode.replaceChild(s, i);
+    }
+  }).then(c => {
+    const l = document.createElement('a');
+    l.download = 'Сила_Ампера_' + name.replace(/\s+/g, '_') + '.jpg';
+    l.href = c.toDataURL('image/jpeg', 0.92); l.click();
+  });
+}
+
+/* ---------- Canvas ---------- */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  cv.width = r.width * d; cv.height = r.height * d;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+function arrow(x1, y1, x2, y2, color, w = 2, head = 9) {
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(a - 0.45), y2 - head * Math.sin(a - 0.45));
+  ctx.lineTo(x2 - head * Math.cos(a + 0.45), y2 - head * Math.sin(a + 0.45));
+  ctx.closePath(); ctx.fill();
+}
+
+function pole(x, y, w, h, letter, color) {
+  ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 34px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(letter, x + w / 2, y + h / 2);
+}
+
+function render() {
+  const W = cv.width / (window.devicePixelRatio || 1), H = cv.height / (window.devicePixelRatio || 1);
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H * 0.5, ph = H * 0.62, pw = Math.min(70, W * 0.1);
+  const s = state.s, aRad = state.a * Math.PI / 180;
+
+  // Магніт: N червоний, S синій
+  const leftIsN = s === 1;
+  pole(12, cy - ph / 2, pw, ph, leftIsN ? 'N' : 'S', leftIsN ? '#dc2626' : '#2563eb');
+  pole(W - 12 - pw, cy - ph / 2, pw, ph, leftIsN ? 'S' : 'N', leftIsN ? '#2563eb' : '#dc2626');
+
+  // Лінії B (від N до S)
+  const alpha = 0.15 + 0.85 * Math.min(state.B / 3, 1);
+  ctx.globalAlpha = alpha;
+  for (let i = -3; i <= 3; i++) {
+    const y = cy + i * (ph / 8);
+    const x1 = leftIsN ? 12 + pw + 6 : W - 12 - pw - 6, x2 = leftIsN ? W - 12 - pw - 6 : 12 + pw + 6;
+    arrow(x1, y, x2, y, '#fb7185', 1.5, 8);
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fb7185'; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('лінії магнітної індукції B', cx, cy - ph / 2 - 8);
+
+  // Напрямок струму: кут α від напрямку B
+  const dx = s * Math.cos(aRad), dy = -Math.sin(aRad);
+  const len = 70 + state.L * 190;
+  const F = force();
+  const z = -s * Math.sin(aRad);          // z>0 — до глядача, z<0 — від глядача
+  const target = (F > 0 ? Math.min(Math.sqrt(F) / 4.5, 1) : 0) * 46 * Math.sign(z);
+  disp += (target - disp) * 0.12;
+  const ox = disp * 0.9, oy = disp * 0.6;
+
+  // Початкове положення (пунктир)
+  ctx.setLineDash([6, 6]); ctx.strokeStyle = '#64748b'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cx - dx * len / 2, cy - dy * len / 2); ctx.lineTo(cx + dx * len / 2, cy + dy * len / 2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Провідник (зміщений силою)
+  const px = cx + ox, py = cy + oy;
+  ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(px - dx * len / 2, py - dy * len / 2); ctx.lineTo(px + dx * len / 2, py + dy * len / 2); ctx.stroke();
+  ctx.lineCap = 'butt';
+  if (state.I > 0) {
+    for (let t = -0.25; t <= 0.3; t += 0.25)
+      arrow(px + dx * len * (t - 0.06), py + dy * len * (t - 0.06), px + dx * len * (t + 0.06), py + dy * len * (t + 0.06), '#1e293b', 3, 9);
+  }
+  // Підпис I
+  ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 13px system-ui, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(`I = ${fmt(state.I)} А`, px + dx * len / 2 + dx * 38, py + dy * len / 2 + dy * 20 - 4);
+
+  // Кут α: дуга від B до струму
+  if (state.a > 0 && state.a < 180) {
+    const r = 46, a0 = s === 1 ? 0 : Math.PI;
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
+    const a1 = Math.atan2(dy, dx);
+    ctx.arc(cx, cy, r, a0, a1, s === 1 ? true : false); ctx.stroke();
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 13px system-ui, sans-serif';
+    const am = (a0 + a1) / 2 + (s === 1 ? 0 : 0);
+    ctx.fillText('α', cx + (r + 12) * Math.cos(am), cy + (r + 12) * Math.sin(am));
+  }
+
+  // Символ сили: ⊗ (від глядача) або ⊙ (до глядача)
+  const sx = cx, sy = cy + ph / 2 + 24 - (H > 460 ? 0 : 8);
+  if (F > 1e-9) {
+    const into = z < 0;
+    ctx.strokeStyle = '#f97316'; ctx.fillStyle = '#f97316'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2); ctx.stroke();
+    if (into) {
+      ctx.beginPath(); ctx.moveTo(sx - 8, sy - 8); ctx.lineTo(sx + 8, sy + 8);
+      ctx.moveTo(sx + 8, sy - 8); ctx.lineTo(sx - 8, sy + 8); ctx.stroke();
+    } else { ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.font = 'bold 12px system-ui, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(into ? 'F від нас (в площину екрана)' : 'F на нас (з площини екрана)', sx + 24, sy + 4);
+  } else {
+    ctx.fillStyle = '#94a3b8'; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('F = 0', sx, sy + 4);
+  }
+  requestAnimationFrame(render);
+}
+
+window.onload = () => { resize(); setPreset(0); requestAnimationFrame(render); };
+</script>
+</body>
+</html>
